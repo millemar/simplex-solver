@@ -1,5 +1,5 @@
 # Cached MPS data files (downloaded at runtime)
-data/
+/data/
 
 # Python artifacts
 __pycache__/
