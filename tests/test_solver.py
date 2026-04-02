@@ -82,10 +82,9 @@ class TestSmallLP:
 
     def test_tiny_lp_direct(self):
         """Build a tiny LP directly and solve it (no MPS parsing)."""
-        # min -x1-2x2 s.t. x1+x2+s1=4, x1-x2+s2=2, all>=0
-        # Optimal: x1=3,x2=1 -> obj=-5 (at vertex x1=3,x2=1)
-        # Actually at x1=0,x2=4: obj=-8 (infeasible because x1-x2=0-4=-4>2? No, -4<=2 OK)
-        # So x1=0, x2=4, s1=0, s2=6 is feasible with obj=-8
+        # min -x1-2x2 s.t. x1+x2<=4, x1-x2<=2, x1,x2>=0
+        # Standard form: x1+x2+s1=4, x1-x2+s2=2
+        # Optimal at (x1=0, x2=4): obj=-8 (feasible: x1-x2=-4<=2 ✓, x1+x2=4 ✓)
         A = np.array([[1, 1, 1, 0], [1, -1, 0, 1]], dtype=float)
         b = np.array([4.0, 2.0])
         c = np.array([-1.0, -2.0, 0.0, 0.0])
@@ -105,18 +104,11 @@ class TestSmallLP:
         assert math.isclose(result.objective, -2.0, rel_tol=REL_TOL)
 
     def test_infeasible_lp(self):
-        """A clearly infeasible LP: x=1 and x=-1 (after sign flip)."""
-        # x + s1 = 1  (x <= 1)
-        # -x + s2 = -2  -> flip: x - s2 = 2... but x<=1, so x cannot be >=2
-        # Actually represent as:
-        # x <= 1 (x + s1 = 1)
-        # x >= 3 (-x + s2 = -3, flip -> x - s2 = 3, b=-3<0 so flip: -x+s2=3)
-        # wait, let me build this carefully:
-        # x <= 1: x + s1 = 1, b1=1 >= 0 OK
-        # x >= 3: subtract surplus -> x - s2 = 3, but 3 > 1 so infeasible
+        """A clearly infeasible LP: x<=1 and x>=3 simultaneously."""
+        # x <= 1: x + s1 = 1 (b1=1 >= 0)
+        # x >= 3: x - s2 = 3, but with b[1]=-3 < 0, flip row -> -x + s2 = 3
         A = np.array([[1, 1, 0], [-1, 0, 1]], dtype=float)
         b = np.array([1.0, -3.0])
-        # b[1] < 0, multiply row by -1:
         A[1, :] *= -1
         b[1] *= -1
         # Now A = [[1,1,0],[1,0,-1]], b=[1,3]

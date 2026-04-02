@@ -225,10 +225,6 @@ def _phase2(
     m, n = A.shape
     basis = list(basis)
 
-    iters = _simplex_iterations(A, b, c, basis, verbose=verbose)
-
-    # Check for unboundedness (detected inside _simplex_iterations via status)
-    # We need a way to propagate this — use a mutable container trick
     iters, status = _simplex_iterations_with_status(A, b, c, basis, verbose=verbose)
 
     x = _basic_solution(A, b, basis)
