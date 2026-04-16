@@ -1,370 +1,370 @@
 """
-Two-phase revised simplex method solver.
+Méthode du simplexe révisé en deux phases.
 
-Phase I:  Find an initial basic feasible solution (BFS) by minimizing
-          the sum of artificial variables.
-Phase II: Optimize the original objective starting from the BFS.
+Phase I : Trouver une solution de base réalisable initiale (SBR) en minimisant la somme des variables artificielles.
+Phase II : Optimiser la fonction objectif originale en partant de la SBR.
 """
 
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 import numpy as np
 
-from mps_parser import LPProblem
+from mps_parser import LPProblem, parse_mps
 
-# Numerical tolerance for treating values as zero
-ZERO_TOL = 1e-8
-# Tolerance for optimality check (reduced costs)
-OPT_TOL = 1e-8
-# Tolerance for infeasibility (Phase I optimal value)
-FEASIBILITY_TOL = 1e-6
+# Tolérance numérique pour traiter les valeurs comme étant nulles
+TOL_ZERO = 1e-8
+# Tolérance pour le critère d'optimalité (coûts réduits)
+TOL_OPT = 1e-8
+# Tolérance d'infeasibilité (valeur de Phase I)
+TOL_REALISABLE = 1e-6
 
 
 @dataclass
-class SimplexResult:
-    """Result returned by the two-phase simplex solver."""
-    status: str                    # 'optimal', 'infeasible', 'unbounded'
-    objective: float               # Optimal objective value (with offset)
-    x: np.ndarray                  # Solution vector (original variables)
-    basis: List[int]               # Final basis indices
-    iterations_phase1: int         # Pivot count in Phase I
-    iterations_phase2: int         # Pivot count in Phase II
+class ResultatSimplexe:
+    """Résultat retourné par le solveur du simplexe en deux phases."""
+    statut: str
+    objectif: float
+    x: np.ndarray
+    base: List[int]
+    iter_phase1: int
+    iter_phase2: int
     message: str = ''
 
 
-def solve(lp: LPProblem, verbose: bool = False) -> SimplexResult:
+def resoudre(probleme: LPProblem) -> ResultatSimplexe:
     """
-    Solve the LP problem using the two-phase simplex method.
+    Résout le problème de PL à l’aide de la méthode du simplexe en deux phases.
 
-    Parameters
+    Paramètres
     ----------
-    lp : LPProblem
-        A problem in standard form (min c^Tx s.t. Ax=b, x>=0).
-    verbose : bool
-        Print progress information during solve.
+    probleme : LPProblem
+        Problème sous forme standard (min c^Tx s.c. Ax=b, x>=0).
 
-    Returns
-    -------
-    SimplexResult
-        The solve result with status, objective value, and solution.
+    Retour
+    ------
+    ResultatSimplexe
+        Le résultat de la résolution avec statut, valeur de l'objectif et solution.
     """
-    m, n = lp.A.shape
+    m, n = probleme.A.shape
 
-    if verbose:
-        print(f"Problem: {lp.name}")
-        print(f"  Constraints: {m}, Variables: {n}")
-
-    # ------------------------------------------------------------------ #
-    #  Phase I — find a basic feasible solution                            #
-    # ------------------------------------------------------------------ #
-    if verbose:
-        print("Phase I: Finding initial basic feasible solution...")
-
-    basis, iters1 = _phase1(lp.A, lp.b, verbose)
-
-    if basis is None:
-        return SimplexResult(
-            status='infeasible',
-            objective=np.inf,
+    # ---------------------- Phase I -------------------------- #
+    # Trouver une solution de base réalisable
+    base, iters1 = phase1(probleme.A, probleme.b)
+    if base is None:
+        return ResultatSimplexe(
+            statut='infeasible',
+            objectif=np.inf,
             x=np.zeros(n),
-            basis=[],
-            iterations_phase1=iters1,
-            iterations_phase2=0,
-            message='Phase I: problem is infeasible',
+            base=[],
+            iter_phase1=iters1,
+            iter_phase2=0,
+            message='Phase I : problème irréalisable',
         )
 
-    if verbose:
-        print(f"  Phase I complete: {iters1} pivots, BFS found.")
-
-    # ------------------------------------------------------------------ #
-    #  Phase II — optimize original objective                              #
-    # ------------------------------------------------------------------ #
-    if verbose:
-        print("Phase II: Optimizing original objective...")
-
-    x, obj, iters2, status = _phase2(lp.A, lp.b, lp.c, basis, verbose)
-
-    if status == 'unbounded':
-        return SimplexResult(
-            status='unbounded',
-            objective=-np.inf,
+    # ---------------------- Phase II -------------------------- #
+    # Optimisation de la fonction objectif originale
+    x, obj, iters2, statut = phase2(probleme.A, probleme.b, probleme.c, base)
+    if statut == 'unbounded':
+        return ResultatSimplexe(
+            statut='unbounded',
+            objectif=-np.inf,
             x=x,
-            basis=basis,
-            iterations_phase1=iters1,
-            iterations_phase2=iters2,
-            message='Phase II: problem is unbounded',
+            base=base,
+            iter_phase1=iters1,
+            iter_phase2=iters2,
+            message='Phase II : problème non borné',
         )
 
-    obj_total = obj + lp.obj_offset
+    obj_total = obj + probleme.obj_offset
 
-    if verbose:
-        print(f"  Phase II complete: {iters2} pivots.")
-        print(f"  Optimal objective value: {obj_total:.10e}")
-
-    return SimplexResult(
-        status='optimal',
-        objective=obj_total,
+    return ResultatSimplexe(
+        statut='optimal',
+        objectif=obj_total,
         x=x,
-        basis=basis,
-        iterations_phase1=iters1,
-        iterations_phase2=iters2,
+        base=base,
+        iter_phase1=iters1,
+        iter_phase2=iters2,
         message='optimal',
     )
 
 
-# ====================================================================== #
-#  Internal helpers                                                        #
-# ====================================================================== #
+def resoudre_programme_lineaire(
+    fichier_donnees: Optional[str] = None,
+    A: Optional[np.ndarray] = None,
+    b: Optional[np.ndarray] = None,
+    c: Optional[np.ndarray] = None,
+) -> ResultatSimplexe:
+    """
+    Résout un programme linéaire à l’aide du simplexe en deux phases.
 
-def _phase1(
+    Paramètres
+    ----------
+    fichier_donnees : str, optionnel
+        Chemin d’un fichier MPS à parser et résoudre.
+    A : np.ndarray, optionnel
+        Matrice des contraintes (mode matrice).
+    b : np.ndarray, optionnel
+        Vecteur membre de droite.
+    c : np.ndarray, optionnel
+        Vecteur objectif (minimiser c^T x).
+
+    Retour
+    ------
+    ResultatSimplexe
+        Statut du solveur, valeur objectif, solution, nombre d’itérations.
+    """
+    mode_fichier = fichier_donnees is not None
+    mode_matrice = A is not None or b is not None or c is not None
+
+    if mode_fichier and mode_matrice:
+        raise ValueError("Utilisez fichier_donnees OU A/b/c, pas les deux.")
+
+    if mode_fichier:
+        probleme = parse_mps(fichier_donnees)
+        return resoudre(probleme)
+
+    if A is None or b is None or c is None:
+        raise ValueError("Le mode matrice nécessite A, b et c.")
+
+    matrice_A = np.asarray(A, dtype=float)
+    vecteur_b = np.asarray(b, dtype=float)
+    vecteur_c = np.asarray(c, dtype=float)
+
+    if matrice_A.ndim != 2:
+        raise ValueError("A doit être une matrice 2D.")
+    if vecteur_b.ndim != 1 or vecteur_c.ndim != 1:
+        raise ValueError("b et c doivent être des vecteurs 1D.")
+
+    m, n = matrice_A.shape
+    if vecteur_b.shape[0] != m:
+        raise ValueError("La taille de b doit correspondre au nombre de lignes de A.")
+    if vecteur_c.shape[0] != n:
+        raise ValueError("La taille de c doit correspondre au nombre de colonnes de A.")
+
+    # Normaliser pour garantir b >= 0
+    A_norm = matrice_A.copy()
+    b_norm = vecteur_b.copy()
+    for i in range(m):
+        if b_norm[i] < 0:
+            A_norm[i, :] *= -1.0
+            b_norm[i] *= -1.0
+
+    probleme = LPProblem(
+        name="entree_matrice",
+        c=vecteur_c,
+        A=A_norm,
+        b=b_norm,
+        var_names=[f"x{j + 1}" for j in range(n)],
+        row_names=[f"c{i + 1}" for i in range(m)],
+        n_orig=n,
+    )
+    return resoudre(probleme)
+
+
+# ==================== FONCTIONS INTERNES ======================= #
+
+def phase1(
     A: np.ndarray,
     b: np.ndarray,
-    verbose: bool = False,
 ) -> Tuple[Optional[List[int]], int]:
     """
-    Phase I of the two-phase simplex method.
+    Phase I du simplexe : ajout de variables artificielles.
 
-    Adds one artificial variable per constraint, minimises their sum.
-    Returns the basis (without artificial variables) if feasible, else None.
-
-    Parameters
-    ----------
-    A : (m, n) array
-        Constraint matrix (b >= 0 already ensured).
-    b : (m,) array
-        Right-hand side (all non-negative).
-    verbose : bool
-
-    Returns
-    -------
-    basis : list of int or None
-        Indices (in the original 0..n-1 column space) of the basic variables.
-    iters : int
-        Number of simplex pivots performed.
+    Retourne la base (sans artificielles) si réalisable, sinon None.
     """
     m, n = A.shape
 
-    # Augment with artificial variables
-    A_aug = np.hstack([A, np.eye(m)])  # (m, n+m)
-    c_aug = np.concatenate([np.zeros(n), np.ones(m)])  # minimise sum of artificials
+    # Augmenter la matrice avec les artificielles
+    A_aug = np.hstack([A, np.eye(m)])
+    c_aug = np.concatenate([np.zeros(n), np.ones(m)])
 
-    # Initial basis: artificial variables (indices n, n+1, ..., n+m-1)
-    basis = list(range(n, n + m))
+    # Base initiale : variables artificielles
+    base = list(range(n, n + m))
 
-    # Run simplex on the auxiliary problem
-    iters = _simplex_iterations(A_aug, b, c_aug, basis, verbose=verbose)
+    # Exécution du simplexe
+    iters = iterations_simplexe(A_aug, b, c_aug, base)
 
-    # Evaluate Phase I objective
-    x_aug = _basic_solution(A_aug, b, basis)
-    phase1_obj = float(c_aug @ x_aug)
+    # Calcul de l’objectif de Phase I
+    x_aug = solution_base(A_aug, b, base)
+    obj_phase1 = float(c_aug @ x_aug)
 
-    if phase1_obj > FEASIBILITY_TOL:
+    if obj_phase1 > TOL_REALISABLE:
         return None, iters
 
-    # Remove artificials from basis (pivot them out if at zero level)
-    basis = _remove_artificials(A_aug, b, basis, n, verbose)
+    # Sortir les artificielles de la base
+    base = retirer_artificielles(A_aug, b, base, n)
 
-    # Return only the original variable indices
-    return basis, iters
+    # Retourner seulement les indices des variables originales
+    return base, iters
 
 
-def _remove_artificials(
+def retirer_artificielles(
     A_aug: np.ndarray,
     b: np.ndarray,
-    basis: List[int],
+    base: List[int],
     n_orig: int,
-    verbose: bool = False,
 ) -> List[int]:
     """
-    Remove artificial variables from the basis.
-
-    If any artificial variable (index >= n_orig) is in the basis at value 0
-    (degenerate case), pivot it out with an original variable.
+    Retirer les variables artificielles de la base (on pivote si nécessaire).
     """
     m = A_aug.shape[0]
-    basis = list(basis)
+    base = list(base)
 
     for i in range(m):
-        if basis[i] >= n_orig:
-            # Try to find an original variable to pivot in
-            B_inv_row = _basis_inv_row(A_aug, basis, i)
-            pivoted = False
+        if base[i] >= n_orig:
+            # Cherche une variable d'origine à pivoter
+            ligne_invB = ligne_base_inverse(A_aug, base, i)
+            pivot_trouve = False
             for j in range(n_orig):
-                if j not in basis:
-                    if abs(B_inv_row @ A_aug[:, j]) > ZERO_TOL:
-                        # Pivot j into basis at position i
-                        basis[i] = j
-                        pivoted = True
+                if j not in base:
+                    if abs(ligne_invB @ A_aug[:, j]) > TOL_ZERO:
+                        base[i] = j
+                        pivot_trouve = True
                         break
-            if not pivoted and verbose:
-                # Redundant row — leave artificial (it's at 0)
-                pass
+            # Si aucune variable originale à pivoter, on laisse l’artificielle
+            pass
 
-    return basis
+    return base
 
 
-def _phase2(
+def phase2(
     A: np.ndarray,
     b: np.ndarray,
     c: np.ndarray,
-    basis: List[int],
-    verbose: bool = False,
+    base: List[int],
 ) -> Tuple[np.ndarray, float, int, str]:
     """
-    Phase II of the two-phase simplex method.
-
-    Optimises the original objective c starting from the given basis.
-
-    Returns
-    -------
-    x : solution vector (length n)
-    obj : objective value
-    iters : number of pivots
-    status : 'optimal' or 'unbounded'
+    Phase II du simplexe : optimisation de la fonction objectif.
+    Retourne (solution, valeur objectif, nb itérations, statut).
     """
     m, n = A.shape
-    basis = list(basis)
+    base = list(base)
 
-    iters, status = _simplex_iterations_with_status(A, b, c, basis, verbose=verbose)
+    iters, statut = iterations_simplexe_et_statut(A, b, c, base)
 
-    x = _basic_solution(A, b, basis)
+    x = solution_base(A, b, base)
     obj = float(c @ x)
 
-    return x[:A.shape[1]], obj, iters, status
+    return x[:A.shape[1]], obj, iters, statut
 
 
-def _simplex_iterations(
+def iterations_simplexe(
     A: np.ndarray,
     b: np.ndarray,
     c: np.ndarray,
-    basis: List[int],
-    verbose: bool = False,
+    base: List[int],
 ) -> int:
-    """Run simplex iterations in-place on `basis`. Returns iteration count."""
-    iters, _ = _simplex_iterations_with_status(A, b, c, basis, verbose)
+    """Exécute le simplexe en place sur base. Retourne le nombre d’itérations."""
+    iters, _ = iterations_simplexe_et_statut(A, b, c, base)
     return iters
 
 
-def _simplex_iterations_with_status(
+def iterations_simplexe_et_statut(
     A: np.ndarray,
     b: np.ndarray,
     c: np.ndarray,
-    basis: List[int],
-    verbose: bool = False,
+    base: List[int],
 ) -> Tuple[int, str]:
     """
-    Run the revised simplex method.
-
-    Modifies `basis` in-place.
-
-    Returns
-    -------
-    (iterations, status) where status is 'optimal' or 'unbounded'.
+    Exécute la méthode du simplexe révisé.
+    Modifie `base` en place.
+    Retourne (nombre itérations, statut) où statut vaut 'optimal' ou 'unbounded'.
     """
     m, n = A.shape
     iters = 0
     MAX_ITER = 10 * (m + n)
 
     while iters < MAX_ITER:
-        # ---- Basis matrix and its factorisation ----
-        B = A[:, basis]
+        # ---- Matrice de base et son inverse ----
+        B = A[:, base]
         try:
             B_inv = np.linalg.inv(B)
         except np.linalg.LinAlgError:
-            break  # Singular basis — should not happen in a well-posed LP
+            break  # Base singulière
 
-        x_B = B_inv @ b  # Basic variable values
+        x_B = B_inv @ b  # Valeurs de base
 
-        # ---- Compute reduced costs ----
-        c_B = c[basis]
-        y = c_B @ B_inv   # Dual variables (row vector)
+        # ---- Calcul des coûts réduits ----
+        c_B = c[base]
+        y = c_B @ B_inv   # Multiplicateurs de Lagrange
 
-        # Non-basic indices
-        non_basis = [j for j in range(n) if j not in basis]
+        # Indices non basiques
+        non_base = [j for j in range(n) if j not in base]
 
-        # Reduced costs for non-basic variables
-        rc = np.array([c[j] - y @ A[:, j] for j in non_basis])
+        # Coûts réduits des variables non basiques
+        rc = np.array([c[j] - y @ A[:, j] for j in non_base])
 
-        # ---- Optimality check ----
-        if np.all(rc >= -OPT_TOL):
+        # ---- Vérification optimalité ----
+        if np.all(rc >= -TOL_OPT):
             return iters, 'optimal'
 
-        # ---- Bland's rule: pick entering variable with smallest index ----
-        # among those with negative reduced cost
-        entering_candidates = [
-            non_basis[k] for k in range(len(non_basis)) if rc[k] < -OPT_TOL
+        # Règle de Bland — plus petit indice négatif
+        candidats_entrant = [
+            non_base[k] for k in range(len(non_base)) if rc[k] < -TOL_OPT
         ]
-        # Bland's rule: smallest index
-        entering = min(entering_candidates)
-        entering_pos_in_non_basis = non_basis.index(entering)
+        entrant = min(candidats_entrant)
+        pos_entrant = non_base.index(entrant)
 
-        # ---- Ratio test ----
-        d = B_inv @ A[:, entering]  # Direction vector
-
-        # Only rows where d[i] > 0 are candidates
-        ratios = np.full(m, np.inf)
+        # ---- Test du rapport ----
+        d = B_inv @ A[:, entrant]
+        rapports = np.full(m, np.inf)
         for i in range(m):
-            if d[i] > ZERO_TOL:
-                ratios[i] = x_B[i] / d[i]
+            if d[i] > TOL_ZERO:
+                rapports[i] = x_B[i] / d[i]
 
-        if np.all(np.isinf(ratios)):
+        if np.all(np.isinf(rapports)):
             return iters, 'unbounded'
 
-        # Bland's rule for leaving: among rows with minimum ratio,
-        # pick the one with smallest basis index
-        min_ratio = np.min(ratios)
-        leaving_candidates = [
+        # Bland sur le choix de la sortie
+        min_rapport = np.min(rapports)
+        candidats_sortie = [
             i for i in range(m)
-            if abs(ratios[i] - min_ratio) <= ZERO_TOL * max(1.0, abs(min_ratio))
+            if abs(rapports[i] - min_rapport) <= TOL_ZERO * max(1.0, abs(min_rapport))
         ]
-        # Pick the leaving row with the smallest basis variable index (Bland's rule)
-        leaving = min(leaving_candidates, key=lambda i: basis[i])
+        sortie = min(candidats_sortie, key=lambda i: base[i])
 
         # ---- Pivot ----
-        basis[leaving] = entering
+        base[sortie] = entrant
         iters += 1
 
-        if verbose and iters % 100 == 0:
-            print(f"    Iteration {iters}, entering={entering}, leaving row={leaving}")
-
     if iters >= MAX_ITER:
-        # Treat as optimal (cycling shouldn't occur with Bland's rule)
+        # Considéré comme optimal (pas de cyclage avec Bland)
         return iters, 'optimal'
 
     return iters, 'optimal'
 
 
-def _basic_solution(
+def solution_base(
     A: np.ndarray,
     b: np.ndarray,
-    basis: List[int],
+    base: List[int],
 ) -> np.ndarray:
     """
-    Compute the basic solution: x_B = B^{-1} b, x_N = 0.
+    Calcule la solution de base x_B = B^{-1} b, x_N = 0.
     """
     m, n = A.shape
     x = np.zeros(n)
-    B = A[:, basis]
+    B = A[:, base]
     try:
         x_B = np.linalg.solve(B, b)
     except np.linalg.LinAlgError:
         x_B = np.linalg.lstsq(B, b, rcond=None)[0]
-    for i, j in enumerate(basis):
+    for i, j in enumerate(base):
         x[j] = x_B[i]
     return x
 
 
-def _basis_inv_row(
+def ligne_base_inverse(
     A: np.ndarray,
-    basis: List[int],
-    row: int,
+    base: List[int],
+    ligne: int,
 ) -> np.ndarray:
     """
-    Return row `row` of B^{-1} where B = A[:, basis].
+    Retourne la ligne `ligne` de B^{-1} où B = A[:, base].
     """
-    B = A[:, basis]
-    e = np.zeros(len(basis))
-    e[row] = 1.0
+    B = A[:, base]
+    e = np.zeros(len(base))
+    e[ligne] = 1.0
     try:
         return np.linalg.solve(B.T, e)
     except np.linalg.LinAlgError:
