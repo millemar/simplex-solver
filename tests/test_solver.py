@@ -138,7 +138,7 @@ class TestSmallLP:
         result = solve(lp)
         assert result.status == "unbounded"
 
-    def test_klee_minty_3d_direct(self):
+    def test_klee_minty_3d_matrix_mode(self):
         """
         Klee-Minty 3D cube in standard form (with slacks).
         Max x1 + 100x2 + 10000x3  <=>  min -(x1 + 100x2 + 10000x3)

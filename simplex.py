@@ -155,18 +155,18 @@ def solve_linear_program(
         raise ValueError("Length of c must match number of columns in A.")
 
     # Keep compatibility with the internal solver assumptions (b >= 0).
-    A_std = A_arr.copy()
-    b_std = b_arr.copy()
+    A_normalized = A_arr.copy()
+    b_normalized = b_arr.copy()
     for i in range(m):
-        if b_std[i] < 0:
-            A_std[i, :] *= -1.0
-            b_std[i] *= -1.0
+        if b_normalized[i] < 0:
+            A_normalized[i, :] *= -1.0
+            b_normalized[i] *= -1.0
 
     lp = LPProblem(
-        name="direct",
+        name="matrix_input",
         c=c_arr,
-        A=A_std,
-        b=b_std,
+        A=A_normalized,
+        b=b_normalized,
         var_names=[f"x{j + 1}" for j in range(n)],
         row_names=[f"c{i + 1}" for i in range(m)],
         n_orig=n,
