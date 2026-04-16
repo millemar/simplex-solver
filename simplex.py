@@ -120,11 +120,34 @@ def solve_linear_program(
     verbose: bool = False,
 ) -> SimplexResult:
     """
-    Solve an LP from either an MPS data file or explicit standard-form arrays.
+    Solve a linear program using the two-phase simplex method.
 
+    Parameters
+    ----------
+    data_file : str, optional
+        Path to an MPS file to parse and solve.
+    A : array-like, optional
+        Constraint matrix in standard form for matrix mode.
+    b : array-like, optional
+        Right-hand-side vector for matrix mode.
+    c : array-like, optional
+        Objective vector for matrix mode (minimize c^T x).
+    verbose : bool
+        Whether to print solve progress.
+
+    Returns
+    -------
+    SimplexResult
+        Solver status, objective value, primal solution, and iteration counts.
+
+    Notes
+    -----
     Exactly one mode must be used:
     - File mode: provide `data_file`
-    - Matrix mode: provide all of `A`, `b`, and `c`
+    - Matrix mode: provide all of `A`, `b`, and `c` in standard form
+      (min c^T x, subject to A x = b, x >= 0).
+    In matrix mode, rows with negative b[i] are normalized by multiplying
+    both row i of A and b[i] by -1 before Phase I.
     """
     file_mode = data_file is not None
     matrix_mode = A is not None or b is not None or c is not None

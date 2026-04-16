@@ -140,8 +140,11 @@ class TestSmallLP:
 
     def test_klee_minty_3d_matrix_mode(self):
         """
-        Klee-Minty 3D cube in standard form (with slacks).
-        Max x1 + 100x2 + 10000x3  <=>  min -(x1 + 100x2 + 10000x3)
+        Klee-Minty 3D cube in matrix-mode standard form (with slacks).
+
+        This benchmark is a classic simplex stress case known for worst-case
+        pivot behavior. For this instance, the optimum is at x1=0, x2=0, x3=125
+        with objective min value -1,250,000.
         """
         A = np.array(
             [
