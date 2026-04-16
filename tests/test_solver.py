@@ -20,7 +20,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from mps_parser import parse_mps, LPProblem
-from simplex import solve
+from simplex import solve, solve_linear_program
 from netlib_downloader import get_problem_path
 
 # Relative tolerance for comparing objective values
@@ -69,6 +69,13 @@ class TestSmallLP:
         result = solve(lp)
         assert result.status == "optimal"
         # min -x1-x2, x1+x2<=2, x1-x2<=1 -> optimal at (1.5,0.5), obj=-2
+        assert math.isclose(result.objective, -2.0, rel_tol=REL_TOL)
+
+    def test_solve_linear_program_from_file(self):
+        """Solve using the public function with a local MPS data file."""
+        path = os.path.join(TEST_DATA_DIR, "simple.mps")
+        result = solve_linear_program(data_file=path)
+        assert result.status == "optimal"
         assert math.isclose(result.objective, -2.0, rel_tol=REL_TOL)
 
     def test_equality_mps(self):
@@ -131,6 +138,25 @@ class TestSmallLP:
         result = solve(lp)
         assert result.status == "unbounded"
 
+    def test_klee_minty_3d_direct(self):
+        """
+        Klee-Minty 3D cube in standard form (with slacks).
+        Max x1 + 100x2 + 10000x3  <=>  min -(x1 + 100x2 + 10000x3)
+        """
+        A = np.array(
+            [
+                [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                [4.0, 1.0, 0.0, 0.0, 1.0, 0.0],
+                [8.0, 4.0, 1.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        b = np.array([5.0, 25.0, 125.0])
+        c = np.array([-1.0, -100.0, -10000.0, 0.0, 0.0, 0.0])
+
+        result = solve_linear_program(A=A, b=b, c=c)
+        assert result.status == "optimal"
+        assert math.isclose(result.objective, -1.25e6, rel_tol=REL_TOL)
+
 
 # ===================================================================== #
 #  Netlib tests (require network access)                                  #
@@ -139,8 +165,7 @@ class TestSmallLP:
 def _solve_netlib(name: str) -> float:
     """Download (if needed), parse, and solve a Netlib problem. Returns objective."""
     path = get_problem_path(name)
-    lp = parse_mps(path)
-    result = solve(lp, verbose=False)
+    result = solve_linear_program(data_file=path, verbose=False)
     assert result.status == 'optimal', f"{name}: expected optimal, got {result.status}"
     return result.objective
 

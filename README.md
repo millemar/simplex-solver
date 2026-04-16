@@ -49,6 +49,22 @@ python main.py -v sc50b
 python main.py --download-all
 ```
 
+### Programmatic API
+
+```python
+import numpy as np
+from simplex import solve_linear_program
+
+# From an MPS data file
+result = solve_linear_program(data_file="data/afiro.mps")
+
+# Or directly from standard-form arrays (Ax=b, x>=0)
+A = np.array([[1, 1, 1, 0], [1, -1, 0, 1]], dtype=float)
+b = np.array([4.0, 2.0])
+c = np.array([-1.0, -2.0, 0.0, 0.0])
+result = solve_linear_program(A=A, b=b, c=c)
+```
+
 ### Example Output
 
 ```

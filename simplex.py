@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 import numpy as np
 
-from mps_parser import LPProblem
+from mps_parser import LPProblem, parse_mps
 
 # Numerical tolerance for treating values as zero
 ZERO_TOL = 1e-8
@@ -110,6 +110,68 @@ def solve(lp: LPProblem, verbose: bool = False) -> SimplexResult:
         iterations_phase2=iters2,
         message='optimal',
     )
+
+
+def solve_linear_program(
+    data_file: Optional[str] = None,
+    A: Optional[np.ndarray] = None,
+    b: Optional[np.ndarray] = None,
+    c: Optional[np.ndarray] = None,
+    verbose: bool = False,
+) -> SimplexResult:
+    """
+    Solve an LP from either an MPS data file or explicit standard-form arrays.
+
+    Exactly one mode must be used:
+    - File mode: provide `data_file`
+    - Matrix mode: provide all of `A`, `b`, and `c`
+    """
+    file_mode = data_file is not None
+    matrix_mode = A is not None or b is not None or c is not None
+
+    if file_mode and matrix_mode:
+        raise ValueError("Use either data_file or A/b/c, not both.")
+
+    if file_mode:
+        lp = parse_mps(data_file)
+        return solve(lp, verbose=verbose)
+
+    if A is None or b is None or c is None:
+        raise ValueError("Matrix mode requires A, b, and c.")
+
+    A_arr = np.asarray(A, dtype=float)
+    b_arr = np.asarray(b, dtype=float)
+    c_arr = np.asarray(c, dtype=float)
+
+    if A_arr.ndim != 2:
+        raise ValueError("A must be a 2D matrix.")
+    if b_arr.ndim != 1 or c_arr.ndim != 1:
+        raise ValueError("b and c must be 1D vectors.")
+
+    m, n = A_arr.shape
+    if b_arr.shape[0] != m:
+        raise ValueError("Length of b must match number of rows in A.")
+    if c_arr.shape[0] != n:
+        raise ValueError("Length of c must match number of columns in A.")
+
+    # Keep compatibility with the internal solver assumptions (b >= 0).
+    A_std = A_arr.copy()
+    b_std = b_arr.copy()
+    for i in range(m):
+        if b_std[i] < 0:
+            A_std[i, :] *= -1.0
+            b_std[i] *= -1.0
+
+    lp = LPProblem(
+        name="direct",
+        c=c_arr,
+        A=A_std,
+        b=b_std,
+        var_names=[f"x{j + 1}" for j in range(n)],
+        row_names=[f"c{i + 1}" for i in range(m)],
+        n_orig=n,
+    )
+    return solve(lp, verbose=verbose)
 
 
 # ====================================================================== #
